@@ -1683,19 +1683,7 @@ if TYPE_CHECKING:
 
 if TYPE_CHECKING:
     from config.constants.triage import (
-        TRIAGE_CREDENTIAL_PREFIX as TRIAGE_CREDENTIAL_PREFIX,
-    )
-    from config.constants.triage import (
-        TRIAGE_LEASE_SECONDS as TRIAGE_LEASE_SECONDS,
-    )
-    from config.constants.triage import (
         TRIAGE_MODEL_ITERATIONS as TRIAGE_MODEL_ITERATIONS,
-    )
-    from config.constants.triage import (
-        TRIAGE_PENDING_LIMIT as TRIAGE_PENDING_LIMIT,
-    )
-    from config.constants.triage import (
-        TRIAGE_POLL_SECONDS as TRIAGE_POLL_SECONDS,
     )
     from config.constants.triage import (
         TRIAGE_SECONDS as TRIAGE_SECONDS,
@@ -1706,14 +1694,9 @@ if TYPE_CHECKING:
     from config.constants.triage import (
         TRIAGE_TOOL_CALLS as TRIAGE_TOOL_CALLS,
     )
-    from config.constants.triage import (
-        TRIAGE_WINDOW_SECONDS as TRIAGE_WINDOW_SECONDS,
-    )
 
 if TYPE_CHECKING:
     from config.constants.triage_demo import DEMO_COLLECTOR_VERSION as DEMO_COLLECTOR_VERSION
-    from config.constants.triage_demo import DEMO_CREDENTIAL_PREFIX as DEMO_CREDENTIAL_PREFIX
-    from config.constants.triage_demo import DEMO_CREDENTIAL_SUFFIXES as DEMO_CREDENTIAL_SUFFIXES
     from config.constants.triage_demo import DEMO_DISK_BYTES as DEMO_DISK_BYTES
     from config.constants.triage_demo import DEMO_FOUNDRY_CHECKSUMS as DEMO_FOUNDRY_CHECKSUMS
     from config.constants.triage_demo import DEMO_FOUNDRY_VERSION as DEMO_FOUNDRY_VERSION
@@ -1724,4 +1707,3 @@ if TYPE_CHECKING:
     from config.constants.triage_demo import DEMO_PREFIX as DEMO_PREFIX
     from config.constants.triage_demo import DEMO_RAM_BYTES as DEMO_RAM_BYTES
     from config.constants.triage_demo import DEMO_SIGNOZ_VERSION as DEMO_SIGNOZ_VERSION
-    from config.constants.triage_demo import demo_credential_ref as demo_credential_ref

@@ -76,7 +76,7 @@ def prepare(root: Path) -> tuple[Path, Path]:
     archive = root / "foundry.tar.gz"
     binary = root / f"foundry_{target}" / "bin" / "foundryctl"
     download(
-        f"https://github.com/SigNoz/signoz-foundry/releases/download/{DEMO_FOUNDRY_VERSION}/foundry_{target}.tar.gz",
+        f"https://github.com/SigNoz/foundry/releases/download/{DEMO_FOUNDRY_VERSION}/foundry_{target}.tar.gz",
         archive,
         DEMO_FOUNDRY_CHECKSUMS[target],
     )

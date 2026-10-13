@@ -17,6 +17,24 @@ from config.constants.triage_demo import (
 )
 from integrations.signoz.triage_demo.artifacts import run
 
+_PAYMENT_DEMO_SERVICES = frozenset(
+    {
+        "astronomy-db",
+        "cart",
+        "checkout",
+        "currency",
+        "email",
+        "flagd",
+        "frontend",
+        "frontend-proxy",
+        "payment",
+        "product-catalog",
+        "quote",
+        "shipping",
+        "valkey-cart",
+    }
+)
+
 
 def write_compose(path: Path, contents: dict[str, Any]) -> None:
     """Publish a complete checkpoint while preserving the last valid file on failure."""
@@ -189,8 +207,11 @@ def generate(
     spec = json.loads(
         run(["docker", "compose", "-f", str(path), "config", "--format", "json"], application)
     )
-    for name in ("otel-collector", "telemetry-docs", "flagd-ui"):
-        spec["services"].pop(name, None)
+    spec["services"] = {
+        name: service
+        for name, service in spec["services"].items()
+        if name in _PAYMENT_DEMO_SERVICES
+    }
     for service in spec["services"].values():
         dependencies = service.get("depends_on", {})
         service["depends_on"] = {

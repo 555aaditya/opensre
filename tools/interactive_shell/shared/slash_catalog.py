@@ -441,8 +441,8 @@ MCP_BY_COMMAND: dict[str, _SlashMcpFields] = {
         anti_examples=("User asks about light/dark mode in a web UI",),
     ),
     "/triage": _mcp(
-        "Manage automatic SigNoz alert investigations: demo, connect, status, list, show, ask, pause, resume, remove. Demo reset and cleanup retain reports.",
-        "User configures read-only alert investigations or asks about a persisted report",
+        "Connect SigNoz, run one bounded investigation, or provision and clean up the payment-alert demo.",
+        "User wants a read-only SigNoz investigation or the disposable payment demo",
         anti_examples=("User wants generic /alerts intake or automatic remediation",),
     ),
     "/trust": _mcp(

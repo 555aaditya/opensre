@@ -15,7 +15,7 @@ from typing import Any, cast
 import httpx
 
 from core.tool_framework.utils import tool_unavailable
-from integrations.signoz.config import SigNozConfig
+from integrations.signoz import SigNozConfig
 
 logger = logging.getLogger(__name__)
 
@@ -478,7 +478,7 @@ class SigNozClient:
     ) -> dict[str, Any]:
         filter_parts: list[str] = []
         if service:
-            filter_parts.append(f"serviceName = '{_escape_signoz_filter_value(service)}'")
+            filter_parts.append(f"service.name = '{_escape_signoz_filter_value(service)}'")
         if error_only:
             filter_parts.append("hasError = true")
 

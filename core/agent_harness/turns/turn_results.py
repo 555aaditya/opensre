@@ -41,6 +41,7 @@ class ToolCallingTurnResult:
     #: Provider-reported totals; None if any model call omitted that measurement.
     input_tokens: int | None = None
     output_tokens: int | None = None
+    llm_iterations_used: int = 0
     #: Provider-visible tool outputs for session-goal review, including failures.
     tool_evidence: str = ""
     #: Qualifying successes; None for hosts that only supply aggregate counts.

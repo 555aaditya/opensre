@@ -4,21 +4,11 @@ from __future__ import annotations
 
 CLI_COMMAND_CHOICES: dict[tuple[str, ...], tuple[tuple[str, str], ...]] = {
     ("/triage",): (
-        ("list", "View investigations"),
-        ("demo", "Try payment-error demo"),
-        ("connect", "Connect SigNoz alerts"),
-        ("status", "View source status"),
-        ("pause", "Pause/resume source"),
-        ("show", "Read an investigation"),
-        ("ask", "Ask a follow-up"),
-        ("resume", "Resume future occurrences"),
-        ("remove", "Remove source; retain reports"),
+        ("demo", "Provision SigNoz and triage a payment alert"),
+        ("connect", "Connect an existing SigNoz instance"),
+        ("run", "Run one bounded investigation"),
     ),
-    ("/triage", "demo"): (
-        ("status", "Read demo progress"),
-        ("reset", "Observe payment recovery"),
-        ("cleanup", "Remove owned demo resources"),
-    ),
+    ("/triage", "demo"): (("cleanup", "Remove an owned demo stack"),),
     ("/auth",): (
         ("status", "Show local provider authentication"),
         ("login", "Sign in to a provider"),

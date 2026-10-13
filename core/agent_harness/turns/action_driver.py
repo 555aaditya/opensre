@@ -1562,6 +1562,7 @@ def _run_action_turn(
         cancelled=cancelled,
         input_tokens=getattr(result, "input_tokens", None),
         output_tokens=getattr(result, "output_tokens", None),
+        llm_iterations_used=getattr(result, "llm_iterations_used", 0),
         tool_evidence=tool_evidence,
         evidence_success_count=evidence_success_count,
         history_items=history_items,

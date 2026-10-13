@@ -83,14 +83,6 @@ def _metrics_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
             },
             "service": {"type": "string", "description": "Service name filter"},
             "time_range_minutes": {"type": "integer", "default": 60},
-            "start_time": {
-                "type": "string",
-                "description": "Optional absolute ISO-8601 start; requires end_time",
-            },
-            "end_time": {
-                "type": "string",
-                "description": "Optional absolute ISO-8601 end; requires start_time",
-            },
             "aggregation": {
                 "type": "string",
                 "default": "avg",
@@ -110,17 +102,10 @@ def query_signoz_metrics(
     time_range_minutes: int = 60,
     aggregation: str = "avg",
     limit: int = 50,
-    start_time: str | None = None,
-    end_time: str | None = None,
     signoz_backend: Any = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
     """Query SigNoz metrics by service and time window."""
-    absolute = (
-        {"start_time": start_time, "end_time": end_time}
-        if start_time is not None or end_time is not None
-        else {}
-    )
     if signoz_backend is not None:
         return cast(
             "dict[str, Any]",
@@ -130,7 +115,6 @@ def query_signoz_metrics(
                 time_range_minutes=time_range_minutes,
                 aggregation=aggregation,
                 limit=limit,
-                **absolute,
             ),
         )
 
@@ -149,5 +133,4 @@ def query_signoz_metrics(
         time_range_minutes=time_range_minutes,
         aggregation=aggregation,
         limit=limit,
-        **absolute,
     )

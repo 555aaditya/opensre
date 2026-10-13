@@ -31,7 +31,7 @@ class CommandSpec:
 COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         "triage",
-        "Manage automatic SigNoz alert investigations.",
+        "Run bounded SigNoz investigations.",
         "surfaces.cli.commands.triage:triage_command",
     ),
     CommandSpec(
