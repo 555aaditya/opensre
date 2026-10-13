@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from config.constants.triage import TRIAGE_MODEL_ITERATIONS, TRIAGE_TEXT_LIMIT, TRIAGE_TOOL_CALLS
 from core.agent_harness.ports import ConfirmFn, ToolEventObserver
-from core.agent_harness.turns.host_cancel import cancel_tool_resources
+from core.agent_harness.spi.cancel import cancel_tool_resources
 from core.tool import AgentTool, AgentToolContext
 from integrations.signoz import SigNozConfig
 from integrations.signoz.client import SigNozClient

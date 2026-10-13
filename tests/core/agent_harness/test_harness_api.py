@@ -133,6 +133,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
         {
             "HostCancelEvent",
             "HostCancelReason",
+            "cancel_tool_resources",
             "ensure_turn_cancel",
             "host_cancel_requested",
             "is_goal_control_reason",
