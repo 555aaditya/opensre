@@ -2,18 +2,79 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
+import queue
+import threading
 import time
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from config.constants.triage import TRIAGE_SECONDS, TRIAGE_TEXT_LIMIT
 from core.agent_harness import AgentSession, SessionConfig, SessionCore, SessionManager
 from core.agent_harness.runtime import default_llm_factory
 from core.agent_harness.spi.defaults import InMemorySessionStore
+from core.llm.types import AgentLLMClient, AgentLLMResponse, SchemaDescribedTool
 from integrations.signoz import SigNozConfig
 from integrations.signoz.notifications import NativeAlert
 from integrations.signoz.triage_evidence import TriageEvidenceTools, TriageScope
+
+
+class BoundedAgentLLM:
+    """Fence every provider invocation by the investigation's call and time budgets."""
+
+    def __init__(self, client: AgentLLMClient, scope: TriageScope) -> None:
+        self.__wrapped__ = client
+        self._scope = scope
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.__wrapped__, name)
+
+    @property
+    def model_id(self) -> str | None:
+        """Return the wrapped provider's model identifier."""
+        return self.__wrapped__.model_id
+
+    def tool_schemas(self, tools: Sequence[SchemaDescribedTool]) -> list[dict[str, Any]]:
+        """Delegate provider-specific tool schema conversion."""
+        return self.__wrapped__.tool_schemas(tools)
+
+    def invoke(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AgentLLMResponse:
+        """Run one provider request without letting the foreground demo exceed its deadline."""
+        remaining = self._scope.consume_model()
+        outcome: queue.Queue[AgentLLMResponse | BaseException] = queue.Queue(maxsize=1)
+        context = contextvars.copy_context()
+
+        def request() -> None:
+            try:
+                outcome.put(
+                    self.__wrapped__.invoke(messages, system=system, tools=tools),
+                    block=False,
+                )
+            except BaseException as exc:
+                outcome.put(exc, block=False)
+
+        thread = threading.Thread(
+            target=context.run,
+            args=(request,),
+            name="opensre-triage-model",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            value = outcome.get(timeout=remaining)
+        except queue.Empty:
+            raise TimeoutError("Triage deadline reached during provider request") from None
+        if isinstance(value, BaseException):
+            raise value
+        return cast(AgentLLMResponse, value)
 
 
 def _parse_report(text: str) -> dict[str, str]:
@@ -66,7 +127,8 @@ def run_signoz_triage(
         session.skill_discovery_enabled = False
         session.long_term_memory_enabled = False
         session.resolved_integrations_cache = {}
-        session.action_iteration_limit = scope.max_model_calls
+        # Leave one request for the loop's tool-disabled safety handoff.
+        session.action_iteration_limit = max(1, scope.max_model_calls - 1)
 
     session = AgentSession.start(
         SessionConfig(
@@ -78,7 +140,7 @@ def run_signoz_triage(
             open_store=False,
         ),
         tools=TriageEvidenceTools(scope),
-        llm_factory=default_llm_factory,
+        llm_factory=lambda: BoundedAgentLLM(default_llm_factory(), scope),
         prepare_session=prepare,
         unattended=True,
         cancel_requested=lambda: time.monotonic() >= scope.deadline,
@@ -107,7 +169,6 @@ def run_signoz_triage(
     )
     started = time.monotonic()
     result = session.chat(prompt)
-    scope.model_calls = result.action_result.llm_iterations_used
     report: dict[str, Any] = _parse_report(result.primary_response_text[:TRIAGE_TEXT_LIMIT])
     report.update(
         elapsed_seconds=round(time.monotonic() - started, 3),

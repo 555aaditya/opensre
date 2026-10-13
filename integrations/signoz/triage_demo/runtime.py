@@ -130,6 +130,13 @@ class PaymentDemo:
         # in place and let flagd's file watcher observe the write.
         path.write_text(json.dumps(flags, indent=2))
 
+    def _disable_flag_for_cleanup(self) -> None:
+        """Best-effort reset without letting a torn disposable file block teardown."""
+        try:
+            self.flag(False)
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            self.progress(f"{self.id}: payment flag reset skipped ({type(exc).__name__})")
+
     def checkout(self) -> bool:
         """Exercise checkout using upstream's synthetic person fixture."""
         user = "opensre-triage-demo-" + secrets.token_hex(4)
@@ -238,7 +245,7 @@ class PaymentDemo:
             )
         finally:
             try:
-                self.flag(False)
+                self._disable_flag_for_cleanup()
                 if alerts_configured:
                     admin.remove_alerts()
             finally:
@@ -257,7 +264,7 @@ class PaymentDemo:
     def cleanup(self) -> dict[str, Any]:
         """Remove only ownership-validated Compose resources and then the demo directory."""
         if "application" in self.data:
-            self.flag(False)
+            self._disable_flag_for_cleanup()
         for filename in ("application.compose.json", "signoz.compose.json"):
             path = self.root / filename
             if path.exists():

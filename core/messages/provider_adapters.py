@@ -193,13 +193,14 @@ def adapter_for(llm: Any) -> MessageAdapter[Any]:
         OpenAIAgentClient,
     )
 
-    if isinstance(llm, BedrockConverseAgentClient):
+    adapter_source = getattr(llm, "__wrapped__", llm)
+    if isinstance(adapter_source, BedrockConverseAgentClient):
         return _BedrockConverseAdapter(llm)
-    if isinstance(llm, AnthropicAgentClient):
+    if isinstance(adapter_source, AnthropicAgentClient):
         return _AnthropicAdapter(llm)
-    if isinstance(llm, OpenAIAgentClient) or _is_litellm_agent_client(llm):
+    if isinstance(adapter_source, OpenAIAgentClient) or _is_litellm_agent_client(adapter_source):
         return _OpenAIAdapter(llm)
-    if isinstance(llm, CLIBackedAgentClient):
+    if isinstance(adapter_source, CLIBackedAgentClient):
         return _CLIAdapter(llm)
     return _GenericAdapter(llm)
 

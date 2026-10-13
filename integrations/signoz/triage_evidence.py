@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from config.constants.triage import TRIAGE_MODEL_ITERATIONS, TRIAGE_TEXT_LIMIT, TRIAGE_TOOL_CALLS
 from core.agent_harness.ports import ConfirmFn, ToolEventObserver
+from core.agent_harness.turns.host_cancel import cancel_tool_resources
 from core.tool import AgentTool, AgentToolContext
 from integrations.signoz import SigNozConfig
 from integrations.signoz.client import SigNozClient
@@ -71,6 +72,16 @@ class TriageScope:
         if time.monotonic() >= self.deadline or self.tool_calls >= self.max_tool_calls:
             raise TimeoutError("Evidence budget exhausted")
         self.tool_calls += 1
+
+    def consume_model(self) -> float:
+        """Reserve one model request and return its remaining wall-clock budget."""
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Triage deadline reached")
+        if self.model_calls >= self.max_model_calls:
+            raise TimeoutError("Triage model budget exhausted")
+        self.model_calls += 1
+        return remaining
 
 
 class TriageEvidenceTools:
@@ -180,8 +191,8 @@ class TriageEvidenceTools:
         return list(self._tools)
 
     def tool_resources(self) -> dict[str, Any]:
-        """No ambient integration or subprocess resources are exposed."""
-        return {}
+        """Expose only the shared cooperative deadline probe to the ReAct loop."""
+        return cancel_tool_resources(lambda: time.monotonic() >= self.scope.deadline)
 
     def observer(self, *, message: str) -> ToolEventObserver:
         """Provider-call accounting is enforced by the host's LLM adapter."""

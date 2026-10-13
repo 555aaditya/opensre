@@ -13,7 +13,11 @@ from typing import Any
 import httpx
 import pytest
 
+from core.llm.types import AgentLLMResponse
+from integrations.signoz import triage_run as triage_run_module
+from integrations.signoz.triage_demo import runtime as demo_runtime
 from integrations.signoz.triage_demo.compose import compose, isolate, owned
+from integrations.signoz.triage_demo.runtime import PaymentDemo
 from integrations.signoz.triage_demo.webhook import DemoAlertInbox, build_demo_webhook_app
 from integrations.signoz.triage_evidence import TriageEvidenceTools, TriageScope
 
@@ -121,3 +125,82 @@ def test_owned_compose_rejects_foreign_cleanup(tmp_path: Path) -> None:
         owned(isolated, namespace)
     with pytest.raises(ValueError, match="outside"):
         compose(tmp_path, namespace, path, "down", "--volumes")
+
+
+def test_cleanup_survives_an_interrupted_flag_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "opensre-triage-abc"
+    application = root / "application"
+    flag = application / "src" / "flagd" / "demo.flagd.json"
+    flag.parent.mkdir(parents=True)
+    flag.write_text("{")
+    for filename in ("application.compose.json", "signoz.compose.json"):
+        (root / filename).write_text("{}")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        demo_runtime,
+        "compose",
+        lambda _root, _identifier, path, *_args: calls.append(path.name),
+    )
+    demo = PaymentDemo.__new__(PaymentDemo)
+    demo.id = root.name
+    demo.root = root
+    demo.data = {"application": str(application)}
+    demo.progress = lambda _message: None
+
+    result = demo.cleanup()
+
+    assert result["cleaned"] is True
+    assert calls == ["application.compose.json", "signoz.compose.json"]
+    assert not root.exists()
+
+
+class _ImmediateLLM:
+    model_id = "fake"
+
+    def tool_schemas(self, _tools: Any) -> list[dict[str, Any]]:
+        return []
+
+    def invoke(self, *_args: Any, **_kwargs: Any) -> AgentLLMResponse:
+        return AgentLLMResponse(content="done")
+
+
+def _scope(*, seconds: float, model_calls: int) -> TriageScope:
+    now = datetime.now(UTC)
+    return TriageScope(
+        query_url="https://signoz.example",
+        api_key="query-key",
+        services=("payment",),
+        start=now - timedelta(minutes=1),
+        end=now,
+        deadline=time.monotonic() + seconds,
+        max_model_calls=model_calls,
+    )
+
+
+def test_model_budget_counts_every_provider_invocation() -> None:
+    assert hasattr(triage_run_module, "BoundedAgentLLM")
+    bounded = triage_run_module.BoundedAgentLLM(_ImmediateLLM(), _scope(seconds=10, model_calls=2))
+
+    bounded.invoke([])
+    bounded.invoke([])
+
+    with pytest.raises(TimeoutError, match="model budget"):
+        bounded.invoke([])
+
+
+def test_provider_invocation_cannot_outlive_the_triage_deadline() -> None:
+    class BlockingLLM(_ImmediateLLM):
+        def invoke(self, *_args: Any, **_kwargs: Any) -> AgentLLMResponse:
+            time.sleep(1)
+            return AgentLLMResponse(content="late")
+
+    assert hasattr(triage_run_module, "BoundedAgentLLM")
+    bounded = triage_run_module.BoundedAgentLLM(BlockingLLM(), _scope(seconds=0.02, model_calls=1))
+    started = time.monotonic()
+
+    with pytest.raises(TimeoutError, match="deadline"):
+        bounded.invoke([])
+
+    assert time.monotonic() - started < 0.5

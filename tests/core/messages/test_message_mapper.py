@@ -202,6 +202,25 @@ class TestAssistantFromResponse:
         response = AgentLLMResponse(content="done", raw_content=raw)
         assert bus.to_assistant_provider_message(response) is raw
 
+    def test_transparent_wrapper_keeps_the_provider_message_adapter(self) -> None:
+        from core.llm.transports.sdk.agent_clients import AnthropicAgentClient
+
+        client = AnthropicAgentClient.__new__(AnthropicAgentClient)
+
+        class Wrapper:
+            __wrapped__ = client
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self.__wrapped__, name)
+
+        raw = [{"type": "text", "text": "done"}]
+        response = AgentLLMResponse(content="done", raw_content=raw)
+
+        assert MessageMapper(Wrapper()).to_assistant_provider_message(response) == {
+            "role": "assistant",
+            "content": raw,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Post-layer — to_tool_result_provider_messages

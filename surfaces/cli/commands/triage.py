@@ -57,12 +57,12 @@ def triage_connect(ctx: click.Context) -> None:
 def triage_run(service: str, window_minutes: int, symptom: str) -> None:
     """Run one on-demand investigation against the connected SigNoz instance."""
     configured = resolve_effective_integrations().get("signoz") or {}
-    config = build_signoz_config(configured)
-    if not config.is_configured:
-        raise click.ClickException(
-            "SigNoz is not connected. Run `uv run opensre triage connect` first."
-        )
     try:
+        config = build_signoz_config(configured.get("config") or {})
+        if not config.is_configured:
+            raise click.ClickException(
+                "SigNoz is not connected. Run `uv run opensre triage connect` first."
+            )
         _emit(
             run_signoz_triage(
                 config,
