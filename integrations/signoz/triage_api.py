@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from config.constants.triage import TRIAGE_SECONDS
 from integrations.signoz.config import SigNozConfig
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ def run_signoz_triage(
     window_minutes: int = 30,
     symptom: str = "",
     alert: NativeAlert | None = None,
-    timeout_seconds: float = 180,
+    timeout_seconds: float = TRIAGE_SECONDS,
 ) -> dict[str, Any]:
     """Run one bounded foreground investigation without loading its harness at import time."""
     from integrations.signoz.triage_run import run_signoz_triage as run
