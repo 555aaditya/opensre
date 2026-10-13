@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from core.llm.types import AgentLLMResponse
+from integrations.signoz import SigNozConfig
 from integrations.signoz import triage_run as triage_run_module
 from integrations.signoz.triage_demo import runtime as demo_runtime
 from integrations.signoz.triage_demo.compose import compose, isolate, owned
@@ -204,3 +205,13 @@ def test_provider_invocation_cannot_outlive_the_triage_deadline() -> None:
         bounded.invoke([])
 
     assert time.monotonic() - started < 0.5
+
+
+def test_restricted_triage_rejects_cli_backed_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(triage_run_module, "agent_llm_is_cli_backed", lambda: True, raising=False)
+
+    with pytest.raises(ValueError, match="API-backed model"):
+        triage_run_module.run_signoz_triage(
+            SigNozConfig(url="https://signoz.example", api_key="query-key"),
+            service="payment",
+        )

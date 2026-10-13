@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from config.constants.triage import TRIAGE_SECONDS, TRIAGE_TEXT_LIMIT
 from core.agent_harness import AgentSession, SessionConfig, SessionCore, SessionManager
-from core.agent_harness.runtime import default_llm_factory
+from core.agent_harness.runtime import agent_llm_is_cli_backed, default_llm_factory
 from core.agent_harness.spi.defaults import InMemorySessionStore
 from core.llm.types import AgentLLMClient, AgentLLMResponse, SchemaDescribedTool
 from integrations.signoz import SigNozConfig
@@ -111,6 +111,11 @@ def run_signoz_triage(
     """Run one ephemeral investigation with no persistent tasks or ambient tools."""
     if not config.is_configured:
         raise ValueError("Connect SigNoz before running triage")
+    if agent_llm_is_cli_backed():
+        raise ValueError(
+            "SigNoz triage requires an API-backed model because CLI-backed providers "
+            "can retain ambient host tools"
+        )
     anchor = (
         datetime.fromisoformat(alert.startsAt.replace("Z", "+00:00")) if alert is not None else None
     )
