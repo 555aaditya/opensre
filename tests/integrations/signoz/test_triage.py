@@ -109,17 +109,31 @@ def test_evidence_scope_rejects_untrusted_authority_and_stops_at_budget(
     ):
         with pytest.raises(PermissionError):
             tools.query("traces", payload)
-    with pytest.raises(PermissionError):
-        backend.query(
-            TelemetryEvidenceQuery(
-                capability=EvidenceCapability.TRACES,
-                service="payment",
-                limit=10,
-                timeout_seconds=1,
-                parameters=(("start_time", "1970-01-01T00:00:00Z"),),
-            ),
-            scope=scope,
-        )
+    invalid_direct_queries = (
+        TelemetryEvidenceQuery(
+            capability=EvidenceCapability.TRACES,
+            service="payment",
+            limit=10,
+            timeout_seconds=1,
+            parameters=(("start_time", "1970-01-01T00:00:00Z"),),
+        ),
+        TelemetryEvidenceQuery(
+            capability=EvidenceCapability.TRACES,
+            service="payment",
+            limit=10,
+            timeout_seconds=1,
+            parameters=(("error_only", "false"),),
+        ),
+        TelemetryEvidenceQuery(
+            capability=EvidenceCapability.METRICS,
+            service="payment",
+            limit=10,
+            timeout_seconds=1,
+        ),
+    )
+    for query in invalid_direct_queries:
+        with pytest.raises(PermissionError):
+            backend.query(query, scope=scope)
 
     tools.query("traces", {"service": "payment", "error_only": True, "limit": 500})
     with pytest.raises(TimeoutError, match="budget"):
