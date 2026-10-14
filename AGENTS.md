@@ -2,11 +2,20 @@
 
 ## Optional local preferences
 
-If a repository-root [`AGENTS.local.md`](AGENTS.local.md) exists, read it for
-checkout-specific preferences. It is optional and gitignored; absence is normal.
-Local preferences supplement, but do not override, repository policy or
-higher-priority instructions. Do not commit the local file or assume it is
-available in another worktree, clone, or cloud task.
+Read optional local preferences using this order:
+
+1. If [`AGENTS.local.md`](AGENTS.local.md) exists at the current worktree root,
+   read it.
+2. Otherwise, run `git worktree list --porcelain`. Its first entry identifies
+   the main worktree; if it is not bare, read `AGENTS.local.md` at that root when
+   present. Use the reported path, not an assumed `.git` directory layout.
+
+Read only the first matching file. Absence is normal. This lets linked worktrees
+share personal preferences without copying them, while allowing a worktree-local
+override. The file is gitignored: never commit it. Local preferences supplement,
+but do not override, repository policy or higher-priority instructions. Separate
+clones and cloud tasks do not inherit it; pass relevant preferences explicitly
+when handing off work.
 
 ## SKILL.md files and the system prompt are human-owned (mandatory — one narrow exception)
 
