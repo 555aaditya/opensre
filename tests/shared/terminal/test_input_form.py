@@ -261,3 +261,31 @@ def test_form_bounds_background_through_text_choice_review_and_validation() -> N
     assert "Synthetic loop" in content and "agent" in content
     assert "Review the delivery settings before saving." in content
     assert "Create loop" in content and "Esc cancel" in content
+
+
+def test_form_uses_alternate_screen_so_terminal_reflow_cannot_orphan_rows() -> None:
+    class TrackingOutput(DummyOutput):
+        def __init__(self) -> None:
+            self.entered_alternate_screen = 0
+            self.left_alternate_screen = 0
+
+        def enter_alternate_screen(self) -> None:
+            self.entered_alternate_screen += 1
+
+        def quit_alternate_screen(self) -> None:
+            self.left_alternate_screen += 1
+
+    output = TrackingOutput()
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        app = build_input_form(
+            {"name": "audit"},
+            title="/records",
+            heading="Records",
+            submit_label="Close",
+            fields=lambda _values: [InputField("name", "Name")],
+            validate=lambda _values: None,
+        )
+        assert app.run(pre_run=lambda: pipe.send_text("\x03")) is None
+
+    assert output.entered_alternate_screen == 1
+    assert output.left_alternate_screen == 1
