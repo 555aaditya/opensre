@@ -1,0 +1,71 @@
+[
+  {
+    "width": 40,
+    "result": "passed",
+    "executions": [
+      [
+        "cron",
+        "logs",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "run",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "remove",
+        "exact-telegram-task"
+      ]
+    ],
+    "following_prompt": "after-probe!",
+    "CPR_responses": 7
+  },
+  {
+    "width": 90,
+    "result": "passed",
+    "executions": [
+      [
+        "cron",
+        "logs",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "run",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "remove",
+        "exact-telegram-task"
+      ]
+    ],
+    "following_prompt": "after-probe!",
+    "CPR_responses": 7
+  },
+  {
+    "width": 160,
+    "result": "passed",
+    "executions": [
+      [
+        "cron",
+        "logs",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "run",
+        "exact-telegram-task"
+      ],
+      [
+        "cron",
+        "remove",
+        "exact-telegram-task"
+      ]
+    ],
+    "following_prompt": "after-probe!",
+    "CPR_responses": 7
+  }
+]

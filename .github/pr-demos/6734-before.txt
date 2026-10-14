@@ -1,0 +1,2 @@
+Add a task ID, then press Enter.
+Pending editable prompt: /cron logs 
