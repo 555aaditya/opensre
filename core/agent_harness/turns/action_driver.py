@@ -368,16 +368,6 @@ def _stash_collapsed_tool_output(session: SessionState, text: str | None) -> Non
         terminal.collapsed_tool_output = text
 
 
-def _preferred_tool_response_texts(result: Any) -> str:
-    """Reply text of tools whose output is not on screen yet.
-
-    A painted result (``rendered_in_shell``) is skipped like everywhere else in
-    the transcript; otherwise its one-line summary reappears as the closing
-    under the table it summarizes.
-    """
-    return "\n\n".join(_preferred_tool_chunks(result))
-
-
 def _preferred_tool_chunks(
     result: Any, tools_by_name: Mapping[str, Any] | None = None
 ) -> list[str]:
