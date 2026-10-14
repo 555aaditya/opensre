@@ -1,5 +1,13 @@
 ## OpenSRE Development Reference
 
+## Optional local preferences
+
+If a repository-root [`AGENTS.local.md`](AGENTS.local.md) exists, read it for
+checkout-specific preferences. It is optional and gitignored; absence is normal.
+Local preferences supplement, but do not override, repository policy or
+higher-priority instructions. Do not commit the local file or assume it is
+available in another worktree, clone, or cloud task.
+
 ## SKILL.md files and the system prompt are human-owned (mandatory — one narrow exception)
 
 Agents are **never** allowed to create, edit, rename, move, or delete:
