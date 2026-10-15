@@ -575,6 +575,21 @@ def test_plan_snapshots_are_stripped_from_the_reply() -> None:
     assert "✓ Inspect path" not in shown
 
 
+def test_settled_plan_checklist_is_stripped_from_the_reply() -> None:
+    """A finished checklist (``Plan complete`` plus work notes) is not part of the reply."""
+    reply = (
+        "The disk is full.\n\nPlan complete · 2/2\n  ✓ Check disk\n      ↳ shell_run\n  ✓ Report\n"
+    )
+    result = _Result(tool_results=[], final_text=reply)
+
+    _rt, display_chunks, _use_final = _compose_response(result, _Session(), _counts(0))
+    shown = "\n".join(display_chunks)
+
+    assert shown == "The disk is full."
+    assert "Plan complete" not in shown
+    assert "Check disk" not in shown
+
+
 def _outcome(status: str) -> str:
     return f"- **Outcome:** {status}\n- **Repository:** example/demo"
 

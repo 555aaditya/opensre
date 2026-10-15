@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 
+from core.agent_harness.turns.display_text import strip_plan_snapshots
 from core.tool import ToolExecutionHooks
 from gateway.transports.slack.client import (
     SLACK_MAX_MARKDOWN_BLOCK_CHARS,
@@ -84,8 +85,11 @@ class SlackTurnOutput:
         self._loading_thread.start()
 
     def print(self, message: str = "") -> None:
-        if message:
-            self._note_loading(message)
+        # A settled plan checklist is a terminal overlay. Slack must not turn
+        # it into a loading line that sticks under the finished reply.
+        visible = strip_plan_snapshots(message) if message else ""
+        if visible:
+            self._note_loading(visible)
 
     def render_response_header(self, label: str) -> None:
         self._note_loading(status_from_response_label(label))
@@ -168,6 +172,9 @@ class SlackTurnOutput:
             logger.debug("[slack-turn-output] clear loading status failed", exc_info=True)
 
     def _finalize(self, answer: str) -> bool:
+        answer = strip_plan_snapshots(answer)
+        if not answer.strip():
+            answer = EMPTY_RESPONSE_MESSAGE
         links = self._setup_links(answer)
         final = truncate(markdown_to_slack_mrkdwn(answer), SLACK_MAX_MESSAGE_CHARS, suffix="…")
         if links:
