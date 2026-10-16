@@ -201,6 +201,18 @@ These invocations open a picker or submenu:
 | `/history` | show / clear / off / on / retention |
 | `/resume` | Arrow-key picker of recent conversations |
 
+`/integrations list` and `/mcp list` use the same searchable list as `/loops list`.
+Type to filter; click a row or use ↑↓/Tab to see its details below the list.
+New connections show **Checking…** while connectivity checks run in the background;
+results appear without pressing Enter. Search and navigation stay available while checks run.
+The list remembers this session’s last check result with a **Last checked** timestamp,
+including when you reopen it or switch between the two lists. **Enter** runs a fresh
+check and updates the result in place. Use **F2** for setup, **F3** to
+remove/disconnect (with confirmation), **F4** to add/connect, and **Esc** to close.
+Checks time out after 30 seconds; Esc cancels an in-progress check.
+These action keys leave ordinary typing available for search. Connections without
+a verifier show **Configured**, not a successful connectivity check.
+
 `/model` keeps its menu running: picking `show` prints the current models and
 hands you back to the menu, so leave it with **done** or Esc.
 
@@ -601,9 +613,9 @@ GitHub setup opens the OpenSRE app, where you connect through OAuth or enter a t
 
 You can ask “Can you configure Telegram/PostHog for me?” to start the same guided flow. It explains each human action before requesting input, discovers IDs where possible, and lets you retry failed checks. Enter credentials only in the setup flow's hidden input.
 
-`/integrations list` opens a configured-integration browser in a TTY. Use **↑↓** to browse, **Enter** to verify the selected connection when supported, **a** to add, **s** to run setup for the selected integration, and **r** to remove it with confirmation. **Esc** closes without changes. Choosing an action returns to the conversation when it finishes.
+`/integrations list` opens a searchable configured-integration browser in a TTY. Click a row or use **↑↓/Tab** to see its details; **Enter** runs a fresh connectivity check when supported. Use **F2** for setup, **F3** to remove with confirmation, **F4** to add, and **Esc** to close. Verification updates the list in place; setup and removal return to the conversation.
 
-Browsing does not run health checks: **Not checked** means configuration exists, not that the connection is healthy. Connections without a verifier show **Configured** and do not offer Enter-to-verify; setup and removal remain available. Use `/integrations verify` to run health checks.
+Connections without a result are checked automatically in the background, up to three at a time. Last-known results and their **Last checked** timestamps are remembered for this REPL session only; reopening reuses them until you press Enter to recheck. Connections without a verifier show **Configured**, not a successful health check; setup and removal remain available. Use `/integrations verify` to check all connections again.
 
 </Accordion>
 
@@ -611,7 +623,7 @@ Browsing does not run health checks: **Not checked** means configuration exists,
 
 MCP-capable integrations only (subset of the full integration catalog).
 
-`/mcp list` opens the server browser without running health checks. Use **↑↓** to browse, **Enter** to verify, **a** to connect, **s** to reconfigure the selected server, **r** to disconnect with confirmation, and **Esc** to close. Explicit subcommands remain available below.
+`/mcp list` opens the same searchable browser and automatically checks connections without a result in the background. It shows **Checking…** until results arrive, or this session’s last check result with its timestamp. Click a row or use **↑↓/Tab** to browse, **Enter** to check again, **F2** to reconfigure, **F3** to disconnect with confirmation, **F4** to connect, and **Esc** to close. Explicit subcommands remain available below.
 
 ```text
 /mcp list

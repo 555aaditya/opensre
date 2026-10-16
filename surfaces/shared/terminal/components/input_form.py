@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 from prompt_toolkit.application import Application
@@ -21,6 +21,7 @@ from prompt_toolkit.layout import (
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.processors import AfterInput, ConditionalProcessor
+from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import Box, Frame, TextArea
 from rich.text import Text
@@ -97,6 +98,17 @@ class InputFormError(ValueError):
         self.field = field
 
 
+@dataclass(frozen=True)
+class RecordAction[Result]:
+    """An explicit record shortcut; returning a result closes the browser."""
+
+    key: str
+    label: str
+    handler: Callable[[InputChoice | None], Awaitable[Result | None]]
+    enabled: Callable[[InputChoice | None], bool] | None = None
+    progress_label: str = "Working…"
+
+
 def build_input_form[Result](
     values: dict[str, str],
     *,
@@ -104,7 +116,7 @@ def build_input_form[Result](
     heading: str,
     submit_label: str,
     fields: Callable[[dict[str, str]], Sequence[InputField]],
-    validate: Callable[[dict[str, str]], Result],
+    validate: Callable[[dict[str, str]], Result | None],
     initial_field: str | None = None,
     initial_review_field: str | None = None,
     submit_on_choice: bool = False,
@@ -113,8 +125,10 @@ def build_input_form[Result](
     compact_confirmation: str = "",
     browse_only: bool = False,
     max_width: int = 96,
+    record_actions: Sequence[RecordAction[Result]] = (),
+    load_records: Callable[[Callable[[], None]], Awaitable[None]] | None = None,
 ) -> Application[Result | None]:
-    """Validate accepted drafts; browse-only views never accept or submit values."""
+    """Validate drafts; optional record loading runs in an application-owned task."""
     current = dict(values)
     field_map = {item.name: item for item in fields(dict(current))}
     row = 0
@@ -123,6 +137,10 @@ def build_input_form[Result](
     expanded = False
     error = ""
     choice_index = 0
+    busy = False
+    progress_label = "Working…"
+    pinned_record: str | None = None
+    search_revision = 0
 
     def record_mode() -> bool:
         item = field_map.get(field)
@@ -230,11 +248,16 @@ def build_input_form[Result](
         return [
             choice
             for choice, search_text in choice_catalog[field]
-            if not query or choice.value is None or (choice.value != "" and query in search_text)
+            if not query
+            or choice.value is None
+            or choice.value == pinned_record
+            or (choice.value != "" and query in search_text)
         ]
 
     def reset_choice(_buffer: object) -> None:
-        nonlocal choice_index
+        nonlocal choice_index, pinned_record, search_revision
+        search_revision += 1
+        pinned_record = None
         if mode == "choice" and active_field().searchable:
             choice_index = 0
 
@@ -296,7 +319,13 @@ def build_input_form[Result](
             if view is not None and choice.value is not None:
                 if index and not compact_records():
                     rows.append(("", "\n"))
-                rows.extend(view.row(choice.value, record_width(), selected=index == choice_index))
+                handler = select_record(choice.value)
+                rows.extend(
+                    (style, text, handler)
+                    for style, text, *_rest in view.row(
+                        choice.value, record_width(), selected=index == choice_index
+                    )
+                )
                 continue
             style = "class:selected" if index == choice_index else ""
             label = strip_terminal_controls(choice.label)
@@ -322,6 +351,20 @@ def build_input_form[Result](
         if view is not None and rows and rows[-1][1] == "\n":
             rows.pop()
         return rows
+
+    def select_record(value: str) -> Callable[[MouseEvent], object]:
+        def clicked(event: MouseEvent) -> object:
+            nonlocal choice_index
+            if event.event_type != MouseEventType.MOUSE_UP:
+                return NotImplemented
+            candidates = [candidate.value for candidate in choices()]
+            if value not in candidates:
+                return None
+            choice_index = candidates.index(value)
+            app.layout.focus(editor if active_field().searchable else selection)
+            return None
+
+        return clicked
 
     selection = FormattedTextControl(
         choice_rows,
@@ -364,7 +407,7 @@ def build_input_form[Result](
                 is_match = bool(query and query in line.plain.casefold())
                 (matched if is_match else remaining).append((line, is_match))
             record_details = [*matched, *remaining] if matched else remaining
-            if compact_records():
+            if compact_records() and not record_actions:
                 record_details = matched[:1]
             lines.extend(
                 (str(line.style), _record_detail_preview(line.plain, query if is_match else ""))
@@ -535,6 +578,64 @@ def build_input_form[Result](
     def save(_event: KeyPressEvent) -> None:
         create()
 
+    def available_action(action: RecordAction[Result]) -> bool:
+        size = app.output.get_size()
+        return (
+            record_mode()
+            and size.columns >= 40
+            and size.rows >= 12
+            and (action.enabled is None or action.enabled(selected_record()))
+        )
+
+    def refresh_records() -> None:
+        nonlocal field_map, choice_catalog, record_views, choice_index
+        if app.is_done:
+            return
+        selected = selected_record()
+        field_map = {item.name: item for item in fields(dict(current))}
+        choice_catalog = search_catalog()
+        record_views = record_catalog()
+        candidates = [candidate.value for candidate in choices()]
+        choice_index = (
+            candidates.index(selected.value)
+            if selected is not None and selected.value in candidates
+            else 0
+        )
+        app.invalidate()
+
+    def bind_action(action: RecordAction[Result]) -> None:
+        @keys.add(action.key, filter=Condition(lambda: not busy and available_action(action)))
+        def act(event: KeyPressEvent) -> None:
+            nonlocal busy, error, progress_label
+            choice = selected_record()
+            action_search_revision = search_revision
+            busy = True
+            progress_label = action.progress_label
+            error = ""
+
+            async def perform() -> None:
+                nonlocal busy, error, pinned_record
+                try:
+                    result = await action.handler(choice)
+                    if event.app.is_done:
+                        return
+                    if result is not None:
+                        event.app.exit(result=result)
+                        return
+                    if search_revision == action_search_revision:
+                        pinned_record = choice.value if choice is not None else None
+                    refresh_records()
+                except InputFormError as exc:
+                    error = strip_terminal_controls(str(exc))
+                finally:
+                    busy = False
+                    event.app.invalidate()
+
+            event.app.create_background_task(perform())
+
+    for action in record_actions:
+        bind_action(action)
+
     def heading_text() -> StyleAndTextTuples:
         if mode == "summary":
             return [("bold", "More options" if expanded else heading)]
@@ -551,7 +652,12 @@ def build_input_form[Result](
     def hint() -> str:
         if record_mode():
             if browse_only:
-                return "↑↓/Tab move · Esc close"
+                if busy:
+                    return f"{progress_label} · Esc close"
+                actions = " · ".join(
+                    action.label for action in record_actions if available_action(action)
+                )
+                return "↑↓/Tab move · " + (actions + " · " if actions else "") + "Esc close"
             if mode == "summary":
                 return (
                     "Enter confirm · Esc back"
@@ -809,6 +915,7 @@ def build_input_form[Result](
         # Main-buffer reflow can strand old inline rows after a shrink/expand cycle.
         full_screen=True,
         erase_when_done=True,
+        mouse_support=Condition(record_mode),
     )
     first_missing = next(
         (
@@ -824,4 +931,13 @@ def build_input_form[Result](
         row = next(
             index for index, item in enumerate(review_fields()) if item.name == initial_review_field
         )
+    if load_records is not None:
+
+        async def load() -> None:
+            await load_records(refresh_records)
+
+        def start_loading() -> None:
+            app.create_background_task(load())
+
+        app.pre_run_callables.append(start_loading)
     return app
