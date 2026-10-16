@@ -253,7 +253,6 @@ class TestDispatchSlash:
         expected: str,
     ) -> None:
         """A command with subcommands must ask which one, not pick a default."""
-        import surfaces.interactive_shell.command_registry as command_registry
         from surfaces.interactive_shell.command_registry import help as help_cmd
 
         dispatched: list[str] = []
@@ -267,7 +266,10 @@ class TestDispatchSlash:
         monkeypatch.setattr(help_cmd, "repl_tty_interactive", lambda: True)
         monkeypatch.setattr(help_cmd, "browse_help_commands", lambda _sections: selected)
         monkeypatch.setattr(help_cmd, "repl_choose_subcommand", _pick)
-        monkeypatch.setattr(command_registry, "dispatch_slash", _recording_dispatch(dispatched))
+        monkeypatch.setattr(
+            "surfaces.interactive_shell.command_registry.dispatch_slash",
+            _recording_dispatch(dispatched),
+        )
 
         assert dispatch_slash("/help", Session(), _capture()[0]) is True
         assert offered == [selected]
@@ -276,7 +278,6 @@ class TestDispatchSlash:
     def test_tty_help_runs_a_command_without_subcommands_directly(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import surfaces.interactive_shell.command_registry as command_registry
         from surfaces.interactive_shell.command_registry import help as help_cmd
 
         dispatched: list[str] = []
@@ -287,7 +288,10 @@ class TestDispatchSlash:
             "repl_choose_subcommand",
             lambda **_kwargs: pytest.fail("/status has no subcommands to offer"),
         )
-        monkeypatch.setattr(command_registry, "dispatch_slash", _recording_dispatch(dispatched))
+        monkeypatch.setattr(
+            "surfaces.interactive_shell.command_registry.dispatch_slash",
+            _recording_dispatch(dispatched),
+        )
 
         assert dispatch_slash("/help", Session(), _capture()[0]) is True
         assert dispatched == ["/status"]
@@ -296,14 +300,16 @@ class TestDispatchSlash:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Esc in the subcommand picker backs out; it must not run a default."""
-        import surfaces.interactive_shell.command_registry as command_registry
         from surfaces.interactive_shell.command_registry import help as help_cmd
 
         dispatched: list[str] = []
         monkeypatch.setattr(help_cmd, "repl_tty_interactive", lambda: True)
         monkeypatch.setattr(help_cmd, "browse_help_commands", lambda _sections: "/integrations")
         monkeypatch.setattr(help_cmd, "repl_choose_subcommand", lambda **_kwargs: None)
-        monkeypatch.setattr(command_registry, "dispatch_slash", _recording_dispatch(dispatched))
+        monkeypatch.setattr(
+            "surfaces.interactive_shell.command_registry.dispatch_slash",
+            _recording_dispatch(dispatched),
+        )
 
         assert dispatch_slash("/help", Session(), _capture()[0]) is True
         assert dispatched == []
@@ -2464,10 +2470,12 @@ class TestRunCliCommand:
         assert m.run_cli_command(console, ["remote", "health"], session=session) is False
         assert session.history[-1]["ok"] is False
 
-    def test_headless_cron_run_keeps_its_tick_running_past_the_reply_window(
+    @pytest.mark.parametrize("headless", [False, True])
+    def test_cron_run_keeps_its_tick_running_past_the_reply_window(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
+        headless: bool,
     ) -> None:
         """A gateway ``/cron run`` past the reply window must finish, not be killed.
 
@@ -2479,6 +2487,7 @@ class TestRunCliCommand:
         from core.agent_harness.session import SessionCore
         from core.agent_harness.session.persistence.memory import InMemorySessionStore
         from surfaces.interactive_shell.command_registry import cli_parity as m
+        from surfaces.interactive_shell.command_registry import cron_cmds
 
         finished = tmp_path / "finished"
         child = (
@@ -2491,7 +2500,8 @@ class TestRunCliCommand:
             m, "build_opensre_cli_argv", lambda _args: [sys.executable, "-c", child]
         )
         monkeypatch.setattr(m, "_HEADLESS_CLI_SUBPROCESS_TIMEOUT_SECONDS", 0.1)
-        session = SessionCore(store=InMemorySessionStore())
+        monkeypatch.setattr(cron_cmds, "_RUN_FOREGROUND_SECONDS", 0.1)
+        session = SessionCore(store=InMemorySessionStore()) if headless else Session()
         session.record("slash", "/cron run abc123", ok=True)
         console, buf = _capture()
 
@@ -2753,7 +2763,7 @@ class TestCliDelegatedCommands:
 
     @pytest.mark.parametrize(
         "slash_input",
-        ["/cron", "/cron list", "/cron remove ecf7c2580b83"],
+        ["/cron", "/cron logs ecf7c2580b83", "/cron remove ecf7c2580b83"],
     )
     def test_slash_cron_printers_opt_into_output_capture(
         self, monkeypatch: object, slash_input: str

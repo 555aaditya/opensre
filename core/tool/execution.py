@@ -16,6 +16,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from config.constants.tool_discovery import (
+    MODEL_ONLY_PRESENTATION_KEY,
+    TOOL_DISCOVERY_STATE_DENIED,
+    TOOL_DISCOVERY_STATE_NO_MATCH,
+    TOOL_DISCOVERY_STATE_TRANSPORT_FAILURE,
+    TOOL_FAILURE_STATE_KEY,
+    TOOL_FAILURE_STATES,
+)
 from config.constants.tool_params import config_only_params
 from config.constants.tooling import (
     MAX_PARALLEL_TOOL_CALLS,
@@ -26,6 +34,7 @@ from config.constants.tooling import (
 from core.domain.types.tools import ToolRole
 from core.llm.types import ToolCall
 from core.tool.contracts import AgentTool, AgentToolContext, RuntimeTool, SideEffectLevel
+from core.tool.output import tool_output_content
 from infrastructure.observability.errors.boundary import report_exception
 from infrastructure.observability.errors.service import is_service_unreachable
 from infrastructure.observability.trace.observations import (
@@ -133,10 +142,23 @@ class ToolExecutionResult:
     is_error: bool = False
     terminate: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: An owning tool applied the body budget and retained its status outside it.
+    provider_output_bounded: bool = False
 
     def provider_content(self) -> str | list[dict[str, Any]]:
         """Return the content that should be sent back to the LLM provider."""
-        return self.content
+        if (
+            self.is_error
+            and isinstance(self.details, dict)
+            and self.details.get(TOOL_FAILURE_STATE_KEY) in TOOL_FAILURE_STATES
+        ):
+            return tool_output_content(json.dumps(self.details, default=str))
+        return self.content if self.provider_output_bounded else tool_output_content(self.content)
+
+    @property
+    def model_only(self) -> bool:
+        """Whether presentation and persisted user replies must hide this result."""
+        return self.metadata.get(MODEL_ONLY_PRESENTATION_KEY) is True
 
     def compat_payload(self) -> Any:
         """Return the historical raw payload shape used by old call sites."""
@@ -681,14 +703,14 @@ def _descriptive_tool_error(result: ToolExecutionResult) -> str:
     """The tool's own account of a failure, never its arguments or evidence."""
     if not result.is_error:
         return ""
-    content = result.content
-    if isinstance(content, str) and content.strip():
-        return content.strip()
     details = result.details
     if isinstance(details, dict):
         error = details.get("error")
         if isinstance(error, str) and error.strip():
             return error.strip()
+    content = result.content
+    if isinstance(content, str) and content.strip():
+        return content.strip()
     return ""
 
 
@@ -760,7 +782,11 @@ def _failure_facts(details: Any, span_attrs: Mapping[str, Any]) -> _FailureFacts
     facts = _FailureFacts(
         blocked_by=str(span_attrs.get("blocked_by") or ""),
         exception_type=str(span_attrs.get("exception_type") or ""),
-        error_class=str(span_attrs.get("error_class") or _payload_text(payload, "error_kind")),
+        error_class=str(
+            span_attrs.get("error_class")
+            or _payload_text(payload, "error_kind")
+            or _payload_text(payload, TOOL_FAILURE_STATE_KEY)
+        ),
     )
     if not is_tool_unavailable_envelope(details):
         return facts
@@ -962,7 +988,9 @@ def _prepare_tool_call(
         mark_span_outcome(span_attrs, "unknown_tool", error=True)
         logger.debug("tool_call unknown name=%s id=%s", tc.name, tc.id)
         return _error_result(
-            _unavailable_tool_message(tc.name, tool_map), metadata={"tool_name": tc.name}
+            _unavailable_tool_message(tc.name, tool_map),
+            metadata={"tool_name": tc.name},
+            failure_state=TOOL_DISCOVERY_STATE_NO_MATCH,
         )
     try:
         validation_error = tool.validate_public_input(tc.input)
@@ -981,18 +1009,21 @@ def _prepare_tool_call(
         )
     except Exception as exc:  # noqa: BLE001 - reported as the call's result
         _mark_exception(span_attrs, tc, exc)
-        return _error_result(str(exc), metadata={"tool_name": tc.name})
+        failure_state = (
+            TOOL_DISCOVERY_STATE_TRANSPORT_FAILURE if is_service_unreachable(exc) else None
+        )
+        return _error_result(str(exc), metadata={"tool_name": tc.name}, failure_state=failure_state)
 
     before = _run_before_hook(hooks, request)
     if before is not None and before.blocked:
         mark_span_outcome(span_attrs, "blocked", error=True, **_blocked_call_facts(before.metadata))
         logger.debug("tool_call blocked name=%s id=%s", tc.name, tc.id)
-        return ToolExecutionResult(
-            content=before.reason or f"{tc.name} blocked by before_tool_call hook.",
+        return _error_result(
+            before.reason or f"{tc.name} blocked by before_tool_call hook.",
             details=before.details,
-            is_error=True,
             terminate=before.terminate,
             metadata={"tool_name": tc.name, **before.metadata, _BLOCKED_METADATA_KEY: True},
+            failure_state=TOOL_DISCOVERY_STATE_DENIED,
         )
     logger.debug("tool_call start name=%s id=%s source=%s", tc.name, tc.id, request.source)
     return request
@@ -1028,7 +1059,10 @@ def _finish_tool_call(
         except Exception as exc:  # noqa: BLE001 - reported as the call's result
             error = exc
     _mark_exception(span_attrs, tc, error)
-    result = _error_result(str(error), metadata={"tool_name": tc.name})
+    failure_state = (
+        TOOL_DISCOVERY_STATE_TRANSPORT_FAILURE if is_service_unreachable(error) else None
+    )
+    result = _error_result(str(error), metadata={"tool_name": tc.name}, failure_state=failure_state)
     # Raised transport failures must still reach after_tool_call so gather
     # circuit breakers can mark the source (Grafana used to swallow these
     # as empty lists; once re-raised, skipping the hook would hide them).
@@ -1129,11 +1163,23 @@ def _skipped_result(tool_name: str, reason: str) -> ToolExecutionResult:
     )
 
 
-def _error_result(message: str, *, metadata: dict[str, Any] | None = None) -> ToolExecutionResult:
+def _error_result(
+    message: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+    details: Any = None,
+    terminate: bool = False,
+    failure_state: str | None = None,
+) -> ToolExecutionResult:
+    result_details = details if isinstance(details, dict) else {}
+    result_details = {**result_details, "error": message}
+    if failure_state in TOOL_FAILURE_STATES:
+        result_details[TOOL_FAILURE_STATE_KEY] = failure_state
     return ToolExecutionResult(
         content=message,
-        details={"error": message},
+        details=result_details,
         is_error=True,
+        terminate=terminate,
         metadata=dict(metadata or {}),
     )
 
@@ -1197,6 +1243,7 @@ def _apply_patch(result: ToolExecutionResult, patch: ToolExecutionPatch) -> Tool
     kwargs: dict[str, Any] = {"metadata": metadata}
     if patch.content is not None:
         kwargs["content"] = patch.content
+        kwargs["provider_output_bounded"] = False
     if patch.details is not _UNSET:
         kwargs["details"] = patch.details
     if patch.is_error is not None:

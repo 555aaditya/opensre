@@ -9,6 +9,11 @@ from typing import Any
 
 import pytest
 
+from config.constants.tool_discovery import (
+    TOOL_DISCOVERY_STATE_DENIED,
+    TOOL_DISCOVERY_STATE_TRANSPORT_FAILURE,
+    TOOL_FAILURE_STATE_KEY,
+)
 from config.constants.tooling import OPENSRE_PARALLEL_TOOL_CALLS_ENV
 from core.llm.types import ToolCall
 from core.tool.contracts import RegisteredTool, SideEffectLevel
@@ -187,19 +192,28 @@ def test_a_check_that_ends_the_turn_skips_the_calls_after_it_in_the_group() -> N
     assert started == ["read_a", "read_b"]
     assert not results[0].is_error
     assert results[1].terminate and results[1].metadata.get("blocked") is True
+    assert results[1].details[TOOL_FAILURE_STATE_KEY] == TOOL_DISCOVERY_STATE_DENIED
     assert results[2].metadata.get("skipped") is True
 
 
-def test_a_raising_body_in_a_group_still_reaches_the_after_hook() -> None:
+@pytest.mark.parametrize(
+    ("exception_type", "failure_state"),
+    [(RuntimeError, None), (ConnectionError, TOOL_DISCOVERY_STATE_TRANSPORT_FAILURE)],
+)
+def test_a_raising_body_in_a_group_still_reaches_the_after_hook(
+    exception_type: type[Exception], failure_state: str | None
+) -> None:
     seen: list[tuple[str, bool]] = []
 
     def boom(value: str) -> dict[str, Any]:
-        raise RuntimeError(f"{value} unreachable")
+        raise exception_type(f"{value} unreachable")
 
     def fine(value: str) -> dict[str, Any]:
         return {"value": value}
 
     def after(request: ToolExecutionRequest, result: ToolExecutionResult) -> None:
+        if request.tool_call.name == "read_a":
+            assert result.details.get(TOOL_FAILURE_STATE_KEY) == failure_state
         seen.append((request.tool_call.name, result.is_error))
 
     results = execute_tool_calls(
@@ -210,6 +224,7 @@ def test_a_raising_body_in_a_group_still_reaches_the_after_hook() -> None:
     )
 
     assert results[0].is_error and "read_a unreachable" in str(results[0].content)
+    assert results[0].details.get(TOOL_FAILURE_STATE_KEY) == failure_state
     assert not results[1].is_error
     assert seen == [("read_a", True), ("read_b", False)]
 

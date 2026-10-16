@@ -10,6 +10,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
 from rich.console import Console
@@ -27,7 +28,9 @@ def _isolate_runtime_flags(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cron_add_provider_choices_match_full_provider_enum() -> None:
     """cron delivery genuinely supports every Provider member."""
-    assert set(cron_module._PROVIDER_CHOICES) == {p.value for p in Provider}
+    option = next(p for p in cron_module.cron_add.params if p.name == "provider")
+    assert isinstance(option.type, click.Choice)
+    assert set(option.type.choices) == {p.value for p in Provider}
 
 
 @pytest.mark.parametrize("global_json", [False, True])
@@ -265,7 +268,9 @@ def test_cron_status_fails_closed_for_an_unreadable_task_store(
 
 def test_cron_add_kind_choices_exclude_sentry_kinds() -> None:
     """Sentry-kind tasks go through `opensre sentry`, not generic cron add."""
-    assert set(cron_module._KIND_CHOICES) == {k.value for k in TaskKind} - {
+    option = next(p for p in cron_module.cron_add.params if p.name == "kind")
+    assert isinstance(option.type, click.Choice)
+    assert set(option.type.choices) == {k.value for k in TaskKind} - {
         TaskKind.SENTRY_MORNING_DIGEST.value,
         TaskKind.SENTRY_UPTIME_WATCH.value,
     }
@@ -321,8 +326,13 @@ def test_cron_list_surfaces_legacy_task_migration_status(
 
     assert result.exit_code == 0
     output = " ".join(result.output.split())
-    assert "daily_summary retired" in output
-    assert "opensre cron add --kind" in output
+    assert "Invalid" in output and summary.id in output
+    assert "daily_summary retired" not in output
+    assert "opensre --json cron list" in output
+    monkeypatch.setattr(cron_module, "is_json_output", lambda: True)
+    diagnostic = CliRunner().invoke(cron_module.cron_command, ["list"])
+    assert diagnostic.exit_code == 0
+    assert json.loads(diagnostic.output)[0]["schedule_error"] == notice
 
 
 def test_cron_list_keeps_identifiers_outside_summary_columns(
@@ -363,7 +373,7 @@ def test_cron_list_keeps_identifiers_outside_summary_columns(
     assert "ID: ecf7c2580b83deadbeef" in result.output
     assert "*/30 * * * * *" in result.output
     assert "TZ: UTC" in result.output
-    assert "interactive_shell" in result.output
+    assert "Channel: local" in result.output
     assert "2026-09-16 12:17:30" in result.output
     assert "Last run: 2026-09-16 11:54:47 UTC" in result.output
     assert "347779" not in result.output
@@ -441,7 +451,7 @@ def test_cron_add_stores_the_description_readers_see_in_loop_listings(
     # Assert: stored normalised, and the operator can read back what they entered
     assert result.exit_code == 0, result.output
     assert list_tasks(store)[0].params[LOOP_DESCRIPTION_PARAM] == "Keeps open pull requests green."
-    assert "What it does: Keeps open pull requests green." in listed.output
+    assert "Keeps open pull requests green." in listed.output
 
 
 @pytest.mark.parametrize("mode", [None, "report", "agent"])
@@ -1202,7 +1212,7 @@ def test_cron_add_template_fills_the_loop_and_stores_its_name(
         "repo": "widgets",
     }
     listed = CliRunner().invoke(cron_module.cron_command, ["list"])
-    assert f"What it does: {template.description}" in listed.output
+    assert template.description[:60] in " ".join(listed.output.split())
 
 
 @pytest.mark.parametrize(
