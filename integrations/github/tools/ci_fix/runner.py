@@ -84,6 +84,7 @@ from integrations.github.tools.ci_fix.verification import (
 from integrations.github.tools.ci_fix.worktree import (
     BranchWorktree,
     cleanup_branch_worktree,
+    create_branch_checkout,
     create_branch_worktree,
 )
 
@@ -417,7 +418,7 @@ def _merge_phrase(output: dict[str, Any]) -> str:
 def _confirmation_prompt(ctx: CiFixContext) -> str:
     if ctx.is_branch_target:
         return (
-            f"Fix failing CI for {ctx.target_label} in a separate git worktree, "
+            f"Fix failing CI for {ctx.target_label} in an isolated checkout, "
             "editing files, committing, and pushing a fresh repair branch? [y/N] "
         )
     if ctx.needs_base_merge:
@@ -467,6 +468,8 @@ def run_ci_fix(
         # The readiness check and the run of each coding step share one probe sweep.
         workspaces.enter_context(reuse_coding_agent_choice())
         ws = workspace or coding_workspace()
+        selected_workspace = workspace if (owner and repo) or pr_url else ws
+        isolated_clone = selected_workspace is None
         branch_name = (branch or "").strip()
         ctx: CiFixContext | None = None
         worktree: BranchWorktree | None = None
@@ -511,7 +514,7 @@ def run_ci_fix(
                         repair_workspace(
                             ctx.owner,
                             ctx.repo,
-                            workspace=workspace if (owner and repo) or pr_url else ws,
+                            workspace=selected_workspace,
                             token=resolve_github_token(github_token),
                             target=ctx.head_branch,
                         )
@@ -534,11 +537,13 @@ def run_ci_fix(
             require_confirmation(confirm_fn, _confirmation_prompt(ctx))
             with phases.phase("checkout"):
                 if ctx.is_branch_target:
-                    worktree = create_branch_worktree(
-                        ws, ctx, token=resolve_github_token(github_token)
-                    )
+                    token = resolve_github_token(github_token)
+                    if not isolated_clone:
+                        worktree = create_branch_worktree(ws, ctx, token=token)
+                        workspaces.callback(cleanup_branch_worktree, ws, worktree)
+                    else:
+                        worktree = create_branch_checkout(ws, ctx, token=token)
                     run_workspace = worktree.path
-                    workspaces.callback(cleanup_branch_worktree, ws, worktree)
                     ensure_head_revision(run_workspace, ctx.head_sha)
                     ctx = replace(ctx, head_branch=worktree.branch_name)
                 else:
