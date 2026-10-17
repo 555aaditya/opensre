@@ -68,7 +68,9 @@ def test_a_weekday_number_above_7_is_rejected_before_it_is_stored() -> None:
         build_cron_trigger("0 10 * * 8", "UTC")
 
 
-@pytest.mark.parametrize("cron", ["0 10 * * mon-fri/0", "0 10 1 jan-dec/0 *"])
+@pytest.mark.parametrize(
+    "cron", ["0 10 * * mon-fri/0", "0 10 * * sun-sun/0", "0 10 1 jan-dec/0 *", "0 10 1 jan-jan/0 *"]
+)
 def test_a_zero_step_after_names_is_rejected_before_it_is_stored(cron: str) -> None:
     with pytest.raises(ValueError):
         build_cron_trigger(cron, "UTC")

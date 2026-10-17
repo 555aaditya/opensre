@@ -61,7 +61,8 @@ def _named_steps_in_numbers(
 
     APScheduler 3.x silently drops a step written after a name, so the item
     would fire on every day or month of the range. Items without a step, and
-    names not in the tables, pass through unchanged.
+    names not in the tables, pass through unchanged. Raises ``ValueError`` for
+    a zero step.
     """
     items: list[str] = []
     for item in field.split(","):
@@ -69,6 +70,8 @@ def _named_steps_in_numbers(
         if match is None or match["first"] not in first_numbers:
             items.append(item)
             continue
+        if int(match["step"]) < 1:
+            raise ValueError(f"step must be at least 1: {item!r}")
         first = first_numbers[match["first"]]
         if match["last"] == match["first"]:
             # ``sun-sun/1`` is that one day (not Sunday 0 through Sunday 7),
