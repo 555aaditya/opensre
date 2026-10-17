@@ -17,6 +17,7 @@ from core.domain.types.tools import ToolSurface
 from core.tool import report_run_error
 from core.tool_framework import tool
 from core.tool_framework.utils import build_mcp_tool_listing, unavailable_response
+from integrations.opensre_analytics.audience import turn_refusal
 from integrations.opensre_analytics.client import (
     call_tool,
     describe_error,
@@ -92,6 +93,8 @@ _RANGE_HINT = (
             },
             "analytics_url": {"type": "string"},
             "analytics_token": {"type": "string"},
+            "origin_platform": {"type": "string"},
+            "origin_chat_id": {"type": "string"},
         },
         "required": [],
     },
@@ -104,9 +107,14 @@ def list_opensre_analytics_tools(
     include_schema: bool = False,
     analytics_url: str | None = None,
     analytics_token: str | None = None,
+    origin_platform: str | None = None,
+    origin_chat_id: str | None = None,
     **_kwargs: object,
 ) -> dict[str, object]:
     """List the analytics app's tools in a bounded view."""
+    refusal = turn_refusal(origin_platform or "", origin_chat_id or "")
+    if refusal is not None:
+        return {**unavailable_response(SERVICE, refusal), "tools": []}
     config = config_from_params(analytics_url, analytics_token)
     reason = unavailable_reason(config)
     if reason is not None:
@@ -158,6 +166,8 @@ def list_opensre_analytics_tools(
             "arguments": {"type": "object", "description": "The report's arguments."},
             "analytics_url": {"type": "string"},
             "analytics_token": {"type": "string"},
+            "origin_platform": {"type": "string"},
+            "origin_chat_id": {"type": "string"},
         },
         "required": ["tool_name"],
     },
@@ -170,11 +180,16 @@ def query_opensre_analytics(
     arguments: dict[str, object] | None = None,
     analytics_url: str | None = None,
     analytics_token: str | None = None,
+    origin_platform: str | None = None,
+    origin_chat_id: str | None = None,
     **_kwargs: object,
 ) -> dict[str, Any]:
     """Call one analytics report and return its result once (not text and JSON twice)."""
     name = (tool_name or "").strip()
     args = dict(arguments or {})
+    refusal = turn_refusal(origin_platform or "", origin_chat_id or "")
+    if refusal is not None:
+        return unavailable_response(SERVICE, refusal, tool_name=name or None, arguments=args)
     if not name:
         return unavailable_response(SERVICE, "tool_name is required.", arguments=args)
     if name not in AGGREGATE_REPORTS:

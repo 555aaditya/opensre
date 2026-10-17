@@ -9,6 +9,8 @@ OpenSRE reads the OpenSRE Analytics dashboard (`https://app.opensre-analytics.co
 
 Access is read-only. Individual customers' conversations, answers, and logs stay on the dashboard: OpenSRE does not read them, so customer-written text never reaches the agent or Slack.
 
+The figures are only shown to your team: OpenSRE answers and posts them only in internal Slack conversations and the local CLI. A Slack channel shared with another organization (Slack Connect), Telegram and other chats are refused, and a scheduled report posts nothing if its channel is later shared.
+
 ## Prerequisites
 
 - The analytics app's API token: the value of `ANALYTICS_API_TOKEN` in the analytics app's deployment. Until that variable is set, the analytics app refuses every connection.

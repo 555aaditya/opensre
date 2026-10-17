@@ -9,6 +9,7 @@ from typing import Any
 from core.domain.types.tools import ToolSurface
 from core.tool_framework import tool
 from core.tool_framework.utils import unavailable_response
+from integrations.opensre_analytics.audience import turn_refusal
 from integrations.opensre_analytics.client import unavailable_reason
 from integrations.opensre_analytics.config import SERVICE
 from integrations.opensre_analytics.growth import collect_growth, report_day
@@ -75,6 +76,8 @@ def _parse_day(value: str | None) -> date | str:
             },
             "analytics_url": {"type": "string"},
             "analytics_token": {"type": "string"},
+            "origin_platform": {"type": "string"},
+            "origin_chat_id": {"type": "string"},
         },
         "required": [],
     },
@@ -86,9 +89,14 @@ def opensre_analytics_daily_growth(
     day: str | None = None,
     analytics_url: str | None = None,
     analytics_token: str | None = None,
+    origin_platform: str | None = None,
+    origin_chat_id: str | None = None,
     **_kwargs: object,
 ) -> dict[str, Any]:
     """Collect one day's growth figures and render the morning report."""
+    refusal = turn_refusal(origin_platform or "", origin_chat_id or "")
+    if refusal is not None:
+        return unavailable_response(SERVICE, refusal)
     parsed = _parse_day(day)
     if isinstance(parsed, str):
         return unavailable_response(SERVICE, parsed)

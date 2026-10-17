@@ -16,7 +16,7 @@ from infrastructure.scheduling.scheduler.outcomes import WorkStatus
 from infrastructure.scheduling.scheduler.storage import get_task, list_tasks
 from infrastructure.scheduling.scheduler.types import Provider
 from integrations.manual_loop_runner import run_manual_prompt_loop
-from integrations.opensre_analytics import report
+from integrations.opensre_analytics import audience, report
 from integrations.opensre_analytics.tools.opensre_analytics_report_loop_tool import tool
 
 
@@ -29,6 +29,13 @@ def _scheduler_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         if hasattr(module, "OPENSRE_HOME_DIR"):
             monkeypatch.setattr(module, "OPENSRE_HOME_DIR", home)
     monkeypatch.setattr(loops, "resolve_slack_credentials", _slack_bot_credentials)
+
+
+@pytest.fixture(autouse=True)
+def _internal_slack(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every Slack conversation in these tests is internal to the workspace."""
+    monkeypatch.setattr(audience, "resolve_bot_token", _bot_token)
+    monkeypatch.setattr(audience, "conversation_externally_shared", lambda _t, _c: (False, ""))
 
 
 def _slack_bot_credentials(_params: dict[str, str]) -> dict[str, str]:

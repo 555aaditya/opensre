@@ -10,9 +10,10 @@ from integrations.opensre_analytics.config import (
     build_opensre_analytics_config,
 )
 
-#: Connection values injected from the verified integration and hidden from the model,
-#: so a guessed URL or token can never override the configured one.
-INJECTED_PARAMS = ("analytics_url", "analytics_token")
+#: Injected from the verified integration and the gateway's chat stamp, and hidden
+#: from the model: a guessed URL or token can never override the configured one,
+#: and the model cannot claim the conversation is somewhere it is not.
+INJECTED_PARAMS = ("analytics_url", "analytics_token", "origin_platform", "origin_chat_id")
 
 
 def analytics_available(sources: dict[str, Any]) -> bool:
@@ -27,6 +28,15 @@ def analytics_params(sources: dict[str, Any]) -> dict[str, Any]:
     return {
         "analytics_url": str(entry.get("url") or ""),
         "analytics_token": str(entry.get("auth_token") or ""),
+        **origin_params(sources),
+    }
+
+
+def origin_params(sources: dict[str, Any]) -> dict[str, str]:
+    """The chat this turn came from, stamped by the gateway; empty off chat."""
+    return {
+        "origin_platform": str(sources.get("_gateway_platform") or "").strip().lower(),
+        "origin_chat_id": str(sources.get("_gateway_chat_id") or "").strip(),
     }
 
 

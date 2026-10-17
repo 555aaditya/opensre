@@ -10,13 +10,14 @@ from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from infrastructure.scheduling.scheduler.reload_signal import request_scheduler_reload
 from infrastructure.scheduling.scheduler.types import Provider
+from integrations.opensre_analytics.audience import audience_refusal
 from integrations.opensre_analytics.config import SERVICE
 from integrations.opensre_analytics.report import (
     DEFAULT_REPORT_TIME,
     GrowthReportSchedule,
     schedule_growth_report,
 )
-from integrations.opensre_analytics.tools._sources import analytics_available
+from integrations.opensre_analytics.tools._sources import analytics_available, origin_params
 from integrations.slack.web_client import (
     join_channel,
     normalize_channel_ref,
@@ -25,23 +26,15 @@ from integrations.slack.web_client import (
 )
 
 TOOL_NAME = "schedule_analytics_growth_report"
-_CHAT_PROVIDERS = frozenset({Provider.SLACK.value, Provider.TELEGRAM.value})
 _OTHER_RECURRING_REPORT = (
     "A recurring report about something other than product growth (use schedule_prompt_loop)"
 )
 
 
-def _origin(sources: dict[str, Any]) -> dict[str, Any]:
-    """The chat this turn came from, stamped by the gateway; empty off chat."""
-    return {
-        "origin_platform": str(sources.get("_gateway_platform") or "").strip().lower(),
-        "origin_chat_id": str(sources.get("_gateway_chat_id") or "").strip(),
-    }
-
-
 def _slack_channel(channel: str) -> tuple[str, str, str]:
-    """``(channel_id, note, error)`` for a ``#name`` or ``C…`` id the bot can post to.
+    """``(channel_id, note, error)`` for an internal ``#name`` or ``C…`` id the bot can post to.
 
+    A channel shared with another organization is refused before anything else.
     Joins a public channel so delivery does not fail with ``not_in_channel``.
     A failed join does not block scheduling: the bot may already be a member,
     or someone can invite it, so it becomes a note instead.
@@ -52,6 +45,9 @@ def _slack_channel(channel: str) -> tuple[str, str, str]:
     channel_id, error = resolve_channel_id(target, channel)
     if not channel_id:
         return "", "", error
+    refusal = audience_refusal(Provider.SLACK.value, channel_id)
+    if refusal is not None:
+        return "", "", refusal
     joined, join_error = join_channel(target, channel_id=channel_id)
     note = "" if joined else f"If the bot is not in {channel} yet, /invite it there. ({join_error})"
     return channel_id, note, ""
@@ -70,10 +66,9 @@ def _destination(
         return Provider.SLACK.value, channel_id, label or requested, note
     if not origin_platform:
         return Provider.INTERACTIVE_SHELL.value, "", "the local loop inbox", ""
-    if origin_platform not in _CHAT_PROVIDERS or not origin_chat_id:
-        return (
-            f"Scheduled reports cannot post to {origin_platform} yet; ask from Slack or Telegram."
-        )
+    refusal = audience_refusal(origin_platform, origin_chat_id)
+    if refusal is not None:
+        return refusal
     return origin_platform, origin_chat_id, "this conversation", ""
 
 
@@ -85,7 +80,8 @@ def _destination(
         "Schedule the OpenSRE daily growth report (new accounts, prompts, active accounts, "
         "installs and activation from OpenSRE Analytics) to post every morning. Posts to "
         "the Slack channel named in channel (e.g. '#product-chat'), else back to this "
-        "conversation. Each run reports the previous UTC day with a fixed format and no "
+        "conversation. Only internal Slack conversations: a channel shared with another "
+        "organization, Telegram and other chats are refused. Each run reports the previous UTC day with a fixed format and no "
         "model call. Asking again for the same destination moves the existing schedule "
         "instead of adding a second one. Stop it with stop_scheduled_loop."
     ),
@@ -136,7 +132,7 @@ def _destination(
     },
     injected_params=("origin_platform", "origin_chat_id"),
     is_available=analytics_available,
-    extract_params=_origin,
+    extract_params=origin_params,
 )
 def schedule_analytics_growth_report(
     time: str | None = None,

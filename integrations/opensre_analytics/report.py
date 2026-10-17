@@ -37,6 +37,7 @@ from infrastructure.scheduling.scheduler.types import (
     TaskKind,
     TaskReport,
 )
+from integrations.opensre_analytics.audience import audience_refusal
 from integrations.opensre_analytics.config import (
     SERVICE,
     OpenSREAnalyticsConfig,
@@ -53,6 +54,8 @@ LOOP_PROMPT = (
     "installations and activation. Call opensre_analytics_daily_growth and reply with its "
     "response_text exactly as returned."
 )
+#: Report argument naming the Slack conversation a tick posts to, re-checked each tick.
+_SLACK_CHAT_ARG = "slack_chat_id"
 NOT_CONNECTED_TEXT = (
     "Daily growth report skipped: OpenSRE Analytics is not connected. Connect it from "
     "the OpenSRE dashboard (Integrations → OpenSRE Analytics) with the analytics API token."
@@ -73,13 +76,25 @@ def analytics_config(resolved: Mapping[str, Any]) -> OpenSREAnalyticsConfig | No
     return config if config.is_configured else None
 
 
-def build_report(_args: Mapping[str, str]) -> TaskReport:
+def build_report(args: Mapping[str, str]) -> TaskReport:
     """Loop tick: read yesterday's figures and render the morning report.
 
-    Returns a blocked report naming the missing connection, and a failed one
-    when no source answered, so the loop's channel hears either instead of a
-    report of zeros.
+    A Slack destination is checked again on every tick: a channel that has
+    since been shared with another organization gets an empty body, which the
+    scheduler does not deliver, so it receives nothing. Otherwise returns a
+    blocked report naming a missing connection, and a failed one when no
+    source answered, so the channel hears either instead of a report of zeros.
     """
+    slack_chat_id = args.get(_SLACK_CHAT_ARG, "").strip()
+    if slack_chat_id:
+        refusal = audience_refusal(Provider.SLACK.value, slack_chat_id)
+        if refusal is not None:
+            return TaskReport(
+                "",
+                summary=refusal,
+                work_status="blocked",
+                error_kind="opensre_analytics_audience_refused",
+            )
     config = analytics_config(harness_providers.resolve_integrations())
     if config is None:
         return TaskReport(
@@ -188,6 +203,11 @@ def schedule_growth_report(
         telegram_chat_id=(schedule.chat_id if schedule.provider == Provider.TELEGRAM.value else ""),
         store_path=store_path,
         report=OPENSRE_ANALYTICS_GROWTH_REPORT_BUILDER,
+        report_args=(
+            {_SLACK_CHAT_ARG: schedule.chat_id}
+            if schedule.provider == Provider.SLACK.value
+            else None
+        ),
     )
     return ScheduledGrowthReport(task=created.task, rescheduled=False)
 
