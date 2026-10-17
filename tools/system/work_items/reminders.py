@@ -13,23 +13,23 @@ from core.domain.work_items import (
     work_items_path,
 )
 from infrastructure.scheduling.scheduler.storage import add_task as add_scheduled_task
-from infrastructure.scheduling.scheduler.storage import list_tasks, update_task
+from infrastructure.scheduling.scheduler.storage import list_tasks, patch_task_definitions
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tools.system.work_items.validation import validate_provider
 
 
-def disable_existing_item_reminders(item_id: str) -> int:
-    """Disable enabled one-shot reminders for ``item_id`` so updates replace them."""
+def disable_existing_item_reminders(item_id: str, *, keep_task_id: str = "") -> int:
+    """Disable enabled one-shot reminders for ``item_id``, except ``keep_task_id``."""
     disabled = 0
     for task in list_tasks():
         if task.kind is not TaskKind.WORK_ITEM_REMINDER:
             continue
-        if not task.enabled:
+        if not task.enabled or task.id == keep_task_id:
             continue
         if task.params.get("work_item_id", "").strip() != item_id:
             continue
-        task.enabled = False
-        if update_task(task):
+        # Patch the locked row, so a concurrent edit to it is not overwritten.
+        if patch_task_definitions((task.id,), lambda _current: {"enabled": False}):
             disabled += 1
     return disabled
 
@@ -53,8 +53,6 @@ def schedule_item_reminder(
     valid_targets = [target for target in targets if validate_provider(target.provider) is not None]
     if not valid_targets:
         return None
-    # Replace any prior reminder for this work item before scheduling a new one.
-    disable_existing_item_reminders(item.id)
     primary = valid_targets[0]
     parsed_provider = Provider(primary.provider)
     task = ScheduledTask(
@@ -73,7 +71,15 @@ def schedule_item_reminder(
             ),
         },
     )
-    return add_scheduled_task(task)
+    scheduled = add_scheduled_task(task)
+    if not scheduled.enabled:
+        # add_task returns a stored reminder with the same schedule even when it
+        # is disabled; scheduling it again means it should fire.
+        enabled = patch_task_definitions((scheduled.id,), lambda _current: {"enabled": True})
+        scheduled = enabled[0] if enabled else scheduled
+    # The new reminder replaces any other one for this work item.
+    disable_existing_item_reminders(item.id, keep_task_id=scheduled.id)
+    return scheduled
 
 
 _disable_existing_item_reminders = disable_existing_item_reminders
