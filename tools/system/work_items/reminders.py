@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from filelock import FileLock
+
 from config.constants.work_items import WORK_ITEM_REMINDER_RUN_AT_PARAM
 from core.domain.work_items import (
     WorkItem,
@@ -16,6 +18,13 @@ from infrastructure.scheduling.scheduler.storage import add_task as add_schedule
 from infrastructure.scheduling.scheduler.storage import list_tasks, patch_task_definitions
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tools.system.work_items.validation import validate_provider
+
+_REMINDER_LOCK_FILENAME = ".work_item_reminders.lock"
+
+
+def _reminder_replacement_lock() -> FileLock:
+    """Serialize reminder replacement, so overlapping updates leave exactly one enabled."""
+    return FileLock(str(work_items_path().parent / _REMINDER_LOCK_FILENAME), timeout=10)
 
 
 def disable_existing_item_reminders(item_id: str, *, keep_task_id: str = "") -> int:
@@ -71,14 +80,15 @@ def schedule_item_reminder(
             ),
         },
     )
-    scheduled = add_scheduled_task(task)
-    if not scheduled.enabled:
-        # add_task returns a stored reminder with the same schedule even when it
-        # is disabled; scheduling it again means it should fire.
-        enabled = patch_task_definitions((scheduled.id,), lambda _current: {"enabled": True})
-        scheduled = enabled[0] if enabled else scheduled
-    # The new reminder replaces any other one for this work item.
-    disable_existing_item_reminders(item.id, keep_task_id=scheduled.id)
+    with _reminder_replacement_lock():
+        scheduled = add_scheduled_task(task)
+        if not scheduled.enabled:
+            # add_task returns a stored reminder with the same schedule even when it
+            # is disabled; scheduling it again means it should fire.
+            enabled = patch_task_definitions((scheduled.id,), lambda _current: {"enabled": True})
+            scheduled = enabled[0] if enabled else scheduled
+        # The new reminder replaces any other one for this work item.
+        disable_existing_item_reminders(item.id, keep_task_id=scheduled.id)
     return scheduled
 
 

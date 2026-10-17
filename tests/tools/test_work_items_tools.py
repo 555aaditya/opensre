@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,8 @@ from core.domain.work_items import (
     WorkItemPriority,
     make_work_item,
 )
-from infrastructure.scheduling.scheduler.storage import list_tasks
-from infrastructure.scheduling.scheduler.types import Provider
+from infrastructure.scheduling.scheduler.storage import add_task, list_tasks
+from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask
 from tools.system.work_items._evidence import map_work_task_list, map_work_task_prioritize
 from tools.system.work_items.delivery import (
     delivery_targets,
@@ -173,9 +174,8 @@ def test_reminder_scheduling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert tasks[1].enabled is True
 
 
-def test_rescheduling_an_unchanged_reminder_keeps_it_enabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.fixture
+def reminder_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "infrastructure.scheduling.scheduler.storage.task_store.default_task_store_path",
         lambda: tmp_path / "scheduler_tasks.json",
@@ -184,18 +184,81 @@ def test_rescheduling_an_unchanged_reminder_keeps_it_enabled(
         "infrastructure.scheduling.scheduler.reload_signal.request_scheduler_reload",
         lambda: None,
     )
+
+
+_REMINDER_TARGETS = [WorkItemChannelTarget(provider="slack", chat_id="C999")]
+
+
+@pytest.mark.usefixtures("reminder_store")
+def test_rescheduling_an_unchanged_reminder_keeps_it_enabled() -> None:
     item = make_work_item(title="Check clusters", remind_at="2027-08-24T10:00:00Z")
-    targets = [WorkItemChannelTarget(provider="slack", chat_id="C999")]
-    first = schedule_item_reminder(item, targets=targets, timezone="UTC")
+    first = schedule_item_reminder(item, targets=_REMINDER_TARGETS, timezone="UTC")
 
     # Same time and target (e.g. work_task_update renames the item and re-sends remind_at).
     renamed = dataclasses.replace(item, title="Check clusters v2")
-    second = schedule_item_reminder(renamed, targets=targets, timezone="UTC")
+    second = schedule_item_reminder(renamed, targets=_REMINDER_TARGETS, timezone="UTC")
 
     assert first is not None and second is not None
     assert second.id == first.id
     assert second.enabled is True
     assert [(task.id, task.enabled) for task in list_tasks()] == [(first.id, True)]
+
+
+@pytest.mark.usefixtures("reminder_store")
+def test_switching_back_to_an_earlier_reminder_time_re_enables_it() -> None:
+    item = make_work_item(title="Check clusters", remind_at="2027-08-24T10:00:00Z")
+    morning = schedule_item_reminder(item, targets=_REMINDER_TARGETS, timezone="UTC")
+    afternoon_item = dataclasses.replace(item, remind_at="2027-08-24T14:00:00Z")
+    afternoon = schedule_item_reminder(afternoon_item, targets=_REMINDER_TARGETS, timezone="UTC")
+    back = schedule_item_reminder(item, targets=_REMINDER_TARGETS, timezone="UTC")
+
+    assert morning is not None and afternoon is not None and back is not None
+    assert back.id == morning.id
+    assert back.enabled is True
+    assert {(task.id, task.enabled) for task in list_tasks()} == {
+        (morning.id, True),
+        (afternoon.id, False),
+    }
+
+
+@pytest.mark.usefixtures("reminder_store")
+def test_overlapping_reminder_updates_leave_one_reminder_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item = make_work_item(title="Check clusters", remind_at="2027-08-24T10:00:00Z")
+    afternoon_item = dataclasses.replace(item, remind_at="2027-08-24T14:00:00Z")
+    first_added = threading.Event()
+    second_added = threading.Event()
+
+    def add_then_let_the_other_update_add(task: ScheduledTask) -> ScheduledTask:
+        added = add_task(task)
+        if not first_added.is_set():
+            first_added.set()
+            # Unserialized, the second update adds its reminder here, before
+            # either update disables the other one.
+            second_added.wait(timeout=0.5)
+        else:
+            second_added.set()
+        return added
+
+    monkeypatch.setattr(
+        "tools.system.work_items.reminders.add_scheduled_task", add_then_let_the_other_update_add
+    )
+    updates = [
+        threading.Thread(
+            target=schedule_item_reminder,
+            args=(reminder_item,),
+            kwargs={"targets": _REMINDER_TARGETS, "timezone": "UTC"},
+        )
+        for reminder_item in (item, afternoon_item)
+    ]
+    updates[0].start()
+    assert first_added.wait(timeout=5)
+    updates[1].start()
+    for update in updates:
+        update.join(timeout=15)
+
+    assert [task.enabled for task in list_tasks()].count(True) == 1
 
 
 def test_reminder_scheduling_resolves_naive_datetime_in_requested_timezone(
