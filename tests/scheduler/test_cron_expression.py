@@ -36,6 +36,7 @@ def _fire_days(cron: str) -> set[str]:
         ("mon-fri", {"Mon", "Tue", "Wed", "Thu", "Fri"}),
         ("mon-fri/2", {"Mon", "Wed", "Fri"}),
         ("sun-sat/3", {"Sun", "Wed", "Sat"}),
+        ("sun-sun/1", {"Sun"}),
     ],
 )
 def test_a_weekday_field_fires_on_its_crontab_days(day_of_week: str, fires_on: set[str]) -> None:
@@ -46,6 +47,7 @@ def test_a_weekday_field_fires_on_its_crontab_days(day_of_week: str, fires_on: s
     ("month", "fires_in"),
     [
         ("jan-dec/3", {"Jan", "Apr", "Jul", "Oct"}),
+        ("jan-jan/1", {"Jan"}),
         ("apr-jun", {"Apr", "May", "Jun"}),
     ],
 )

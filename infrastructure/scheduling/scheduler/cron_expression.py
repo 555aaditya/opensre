@@ -66,13 +66,20 @@ def _named_steps_in_numbers(
     items: list[str] = []
     for item in field.split(","):
         match = _NAMED_STEP_ITEM.fullmatch(item.lower())
-        first = first_numbers.get(match["first"]) if match else None
-        last = last_numbers.get(match["last"]) if match and match["last"] else None
-        if match is None or first is None or (match["last"] and last is None):
+        if match is None or match["first"] not in first_numbers:
             items.append(item)
             continue
-        span = str(first) if last is None else f"{first}-{last}"
-        items.append(f"{span}/{match['step']}")
+        first = first_numbers[match["first"]]
+        if match["last"] == match["first"]:
+            # ``sun-sun/1`` is that one day (not Sunday 0 through Sunday 7),
+            # whatever the step.
+            items.append(str(first))
+        elif match["last"] is None:
+            items.append(f"{first}/{match['step']}")
+        elif match["last"] in last_numbers:
+            items.append(f"{first}-{last_numbers[match['last']]}/{match['step']}")
+        else:
+            items.append(item)
     return ",".join(items)
 
 
