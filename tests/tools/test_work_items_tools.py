@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -244,21 +245,20 @@ def test_overlapping_reminder_updates_leave_one_reminder_enabled(
     monkeypatch.setattr(
         "tools.system.work_items.reminders.add_scheduled_task", add_then_let_the_other_update_add
     )
-    updates = [
-        threading.Thread(
-            target=schedule_item_reminder,
-            args=(reminder_item,),
-            kwargs={"targets": _REMINDER_TARGETS, "timezone": "UTC"},
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(schedule_item_reminder, item, targets=_REMINDER_TARGETS, timezone="UTC")
+        assert first_added.wait(timeout=5)
+        second = pool.submit(
+            schedule_item_reminder, afternoon_item, targets=_REMINDER_TARGETS, timezone="UTC"
         )
-        for reminder_item in (item, afternoon_item)
-    ]
-    updates[0].start()
-    assert first_added.wait(timeout=5)
-    updates[1].start()
-    for update in updates:
-        update.join(timeout=15)
+        morning, afternoon = first.result(timeout=15), second.result(timeout=15)
 
-    assert [task.enabled for task in list_tasks()].count(True) == 1
+    # Both updates succeed and the later one wins.
+    assert morning is not None and afternoon is not None
+    assert {(task.id, task.enabled) for task in list_tasks()} == {
+        (morning.id, False),
+        (afternoon.id, True),
+    }
 
 
 def test_reminder_scheduling_resolves_naive_datetime_in_requested_timezone(
